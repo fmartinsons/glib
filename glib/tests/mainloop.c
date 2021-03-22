@@ -2083,6 +2083,7 @@ test_steal_fd (void)
 
   fd = g_file_open_tmp (NULL, &tmpfile, &error);
   g_assert_cmpint (fd, >=, 0);
+  g_assert_no_error (error);
   borrowed = fd;
   stolen = g_steal_fd (&fd);
   g_assert_cmpint (fd, ==, -1);
@@ -2090,6 +2091,7 @@ test_steal_fd (void)
 
   g_close (g_steal_fd (&stolen), &error);
   g_assert_no_error (error);
+  g_assert_cmpint (stolen, ==, -1);
 
   g_assert_no_errno (remove (tmpfile));
   g_free (tmpfile);

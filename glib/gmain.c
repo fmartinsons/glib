@@ -6135,7 +6135,8 @@ g_get_worker_context (void)
  * but for file descriptors.
  *
  * On POSIX platforms, this function is async-signal safe
- * (see signal(7) and signal-safety(7)), making it safe to call from a
+ * (see [`signal(7)`](man:signal(7)) and
+ * [`signal-safety(7)`](man:signal-safety(7))), making it safe to call from a
  * signal handler or a #GSpawnChildSetupFunc.
  *
  * Returns: the value that @fd_ptr previously had
