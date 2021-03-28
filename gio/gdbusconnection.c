@@ -3267,7 +3267,7 @@ signal_data_free (SignalData *signal_data)
   g_free (signal_data->object_path);
   g_free (signal_data->arg0);
   g_ptr_array_unref (signal_data->subscribers);
-  g_free (signal_data);
+  g_slice_free (SignalData, signal_data);
 }
 
 typedef struct
@@ -3572,7 +3572,7 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
       goto out;
     }
 
-  signal_data = g_new0 (SignalData, 1);
+  signal_data = g_slice_new0 (SignalData);
   signal_data->rule                  = rule;
   signal_data->sender                = g_strdup (sender);
   signal_data->sender_unique_name    = g_strdup (sender_unique_name);
