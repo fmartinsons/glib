@@ -3807,7 +3807,7 @@ signal_instance_free (SignalInstance *signal_instance)
   g_object_unref (signal_instance->message);
   g_object_unref (signal_instance->connection);
   signal_subscriber_unref (signal_instance->subscriber);
-  g_free (signal_instance);
+  g_slice_free (SignalInstance, signal_instance);
 }
 
 static gboolean
@@ -3927,7 +3927,7 @@ schedule_callbacks (GDBusConnection *connection,
           GSource *idle_source;
           SignalInstance *signal_instance;
 
-          signal_instance = g_new0 (SignalInstance, 1);
+          signal_instance = g_slice_new0 (SignalInstance);
           signal_instance->subscriber = signal_subscriber_ref (subscriber);
           signal_instance->message = g_object_ref (message);
           signal_instance->connection = g_object_ref (connection);
