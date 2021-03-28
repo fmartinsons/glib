@@ -2208,7 +2208,7 @@ filter_data_destroy (FilterData *filter, gboolean notify_sync)
                            filter->user_data);
     }
   g_main_context_unref (filter->context);
-  g_free (filter);
+  g_slice_free (FilterData, filter);
 }
 
 /* requires CONNECTION_LOCK */
@@ -3164,7 +3164,7 @@ g_dbus_connection_add_filter (GDBusConnection            *connection,
   g_return_val_if_fail (check_initialized (connection), 0);
 
   CONNECTION_LOCK (connection);
-  data = g_new0 (FilterData, 1);
+  data = g_slice_new0 (FilterData);
   data->id = (guint) g_atomic_int_add (&_global_filter_id, 1); /* TODO: overflow etc. */
   data->ref_count = 1;
   data->filter_function = filter_function;
