@@ -6408,7 +6408,7 @@ exported_subtree_free (ExportedSubtree *es)
 
   _g_dbus_subtree_vtable_free (es->vtable);
   g_free (es->object_path);
-  g_free (es);
+  g_slice_free (ExportedSubtree, es);
 }
 
 /* called without lock held in the thread where the caller registered
@@ -6906,7 +6906,7 @@ g_dbus_connection_register_subtree (GDBusConnection           *connection,
       goto out;
     }
 
-  es = g_new0 (ExportedSubtree, 1);
+  es = g_slice_new0 (ExportedSubtree);
   es->object_path = g_strdup (object_path);
   es->connection = connection;
 
