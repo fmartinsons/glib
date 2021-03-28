@@ -1363,7 +1363,7 @@ emit_closed_data_free (EmitClosedData *data)
   g_object_unref (data->connection);
   if (data->error != NULL)
     g_error_free (data->error);
-  g_free (data);
+  g_slice_free (EmitClosedData, data);
 }
 
 /* Called in a user thread that has acquired the main context that was
@@ -1398,7 +1398,7 @@ schedule_closed_unlocked (GDBusConnection *connection,
 
   CONNECTION_ENSURE_LOCK (connection);
 
-  data = g_new0 (EmitClosedData, 1);
+  data = g_slice_new (EmitClosedData);
   data->connection = g_object_ref (connection);
   data->remote_peer_vanished = remote_peer_vanished;
   data->error = error != NULL ? g_error_copy (error) : NULL;
