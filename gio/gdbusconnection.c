@@ -5311,7 +5311,7 @@ register_object_data_new (GClosure *method_call_closure,
 {
   RegisterObjectData *data;
 
-  data = g_new0 (RegisterObjectData, 1);
+  data = g_slice_new0 (RegisterObjectData);
 
   if (method_call_closure != NULL)
     {
@@ -5349,7 +5349,7 @@ register_object_free_func (gpointer user_data)
   g_clear_pointer (&data->get_property_closure, g_closure_unref);
   g_clear_pointer (&data->set_property_closure, g_closure_unref);
 
-  g_free (data);
+  g_slice_free (RegisterObjectData, data);
 }
 
 static void
