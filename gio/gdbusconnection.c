@@ -3302,7 +3302,7 @@ signal_subscriber_unref (SignalSubscriber *subscriber)
                            subscriber->user_data);
 
       g_main_context_unref (subscriber->context);
-      g_free (subscriber);
+      g_slice_free (SignalSubscriber, subscriber);
     }
 }
 
@@ -3555,7 +3555,7 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
   else
     sender_unique_name = "";
 
-  subscriber = g_new0 (SignalSubscriber, 1);
+  subscriber = g_slice_new0 (SignalSubscriber);
   subscriber->ref_count = 1;
   subscriber->callback = callback;
   subscriber->user_data = user_data;
