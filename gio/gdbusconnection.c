@@ -243,7 +243,7 @@ call_destroy_notify_data_in_idle (gpointer user_data)
 static void
 call_destroy_notify_data_free (CallDestroyNotifyData *data)
 {
-  g_free (data);
+  g_slice_free (CallDestroyNotifyData, data);
 }
 
 /*
@@ -265,7 +265,7 @@ call_destroy_notify (GMainContext  *context,
   if (callback == NULL)
     return;
 
-  data = g_new0 (CallDestroyNotifyData, 1);
+  data = g_slice_new (CallDestroyNotifyData);
   data->callback = callback;
   data->user_data = user_data;
 
