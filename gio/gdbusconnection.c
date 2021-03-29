@@ -4066,7 +4066,7 @@ exported_object_free (ExportedObject *eo)
 {
   g_free (eo->object_path);
   g_hash_table_unref (eo->map_if_name_to_ei);
-  g_free (eo);
+  g_slice_free (ExportedObject, eo);
 }
 
 typedef struct
@@ -5201,7 +5201,7 @@ g_dbus_connection_register_object (GDBusConnection             *connection,
   eo = g_hash_table_lookup (connection->map_object_path_to_eo, object_path);
   if (eo == NULL)
     {
-      eo = g_new0 (ExportedObject, 1);
+      eo = g_slice_new (ExportedObject);
       eo->object_path = g_strdup (object_path);
       eo->connection = connection;
       eo->map_if_name_to_ei = g_hash_table_new_full (g_str_hash,
