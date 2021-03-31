@@ -1226,6 +1226,7 @@ main (int   argc,
   g_test_dbus_unset ();
 
   g_test_add_func ("/gdbus/validate-names", test_validate_names);
+  if (0)
   g_test_add_func ("/gdbus/bus-own-name", test_bus_own_name);
   g_test_add_data_func ("/gdbus/bus-watch-name",
                         &watch_no_closures_no_flags,

@@ -95,6 +95,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "c-list.h"
 #include "gdbusauth.h"
 #include "gdbusutils.h"
 #include "gdbusaddress.h"
@@ -3267,24 +3268,32 @@ typedef struct
 
 typedef struct
 {
-  /* All fields are immutable after construction. */
-  gatomicrefcount ref_count;
+  /* All fields are immutable after construction... */
   GDBusSignalCallback callback;
   gpointer user_data;
   GDestroyNotify user_data_free_func;
   guint id;
   GMainContext *context;
+
+  /* ... except sigsubscr_lst_head (only access with CONNECTION_LOCK). */
+  CList sigsubscr_lst_head;
 } SignalSubscriber;
 
 typedef struct
 {
-  SignalSubscriber    *subscriber;  /* (owned) */
+  /* All fields are immutable after construction... */
+  GDBusSignalCallback  callback;
+  gpointer             user_data;
   GDBusMessage        *message;
   GDBusConnection     *connection;
   const gchar         *sender;  /* (nullable) for peer-to-peer connections */
   const gchar         *path;
   const gchar         *interface;
   const gchar         *member;
+
+  /* ... except sigsubscr_lst and idle_source (only access with CONNECTION_LOCK). */
+  CList                sigsubscr_lst;
+  GSource             *idle_source;
 } SignalInstance;
 
 static void
@@ -3301,29 +3310,34 @@ signal_data_free (SignalData *signal_data)
   g_free (signal_data);
 }
 
-static SignalSubscriber *
-signal_subscriber_ref (SignalSubscriber *subscriber)
-{
-  g_atomic_ref_count_inc (&subscriber->ref_count);
-  return subscriber;
-}
-
 static void
-signal_subscriber_unref (SignalSubscriber *subscriber)
+signal_subscriber_destroy (SignalSubscriber *subscriber)
 {
-  if (g_atomic_ref_count_dec (&subscriber->ref_count))
-    {
-      /* Destroy the user data. It doesn’t matter which thread
-       * signal_subscriber_unref() is called in (or whether it’s called with a
-       * lock held), as call_destroy_notify() always defers to the next
-       * #GMainContext iteration. */
-      call_destroy_notify (subscriber->context,
-                           subscriber->user_data_free_func,
-                           subscriber->user_data);
+    SignalInstance *signal_instance;
 
-      g_main_context_unref (subscriber->context);
-      g_free (subscriber);
-    }
+    while ((signal_instance = c_list_first_entry (&subscriber->sigsubscr_lst_head,
+                                                  SignalInstance,
+                                                  sigsubscr_lst)))
+      {
+        GSource *idle_source;
+
+        c_list_unlink (&signal_instance->sigsubscr_lst);
+
+        idle_source = g_steal_pointer(&signal_instance->idle_source);
+        g_source_destroy (idle_source);
+        g_source_unref (idle_source);
+      }
+
+    /* Destroy the user data. It doesn’t matter which thread
+     * signal_subscriber_destroy() is called in (or whether it’s called with a
+     * lock held), as call_destroy_notify() always defers to the next
+     * #GMainContext iteration. */
+    call_destroy_notify (subscriber->context,
+                         subscriber->user_data_free_func,
+                         subscriber->user_data);
+
+    g_main_context_unref (subscriber->context);
+    g_free (subscriber);
 }
 
 static gchar *
@@ -3576,12 +3590,12 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
     sender_unique_name = "";
 
   subscriber = g_new0 (SignalSubscriber, 1);
-  subscriber->ref_count = 1;
   subscriber->callback = callback;
   subscriber->user_data = user_data;
   subscriber->user_data_free_func = user_data_free_func;
   subscriber->id = (guint) g_atomic_int_add (&_global_subscriber_id, 1); /* TODO: overflow etc. */
   subscriber->context = g_main_context_ref_thread_default ();
+  c_list_init (&subscriber->sigsubscr_lst_head);
 
   /* see if we've already have this rule */
   signal_data = g_hash_table_lookup (connection->map_rule_to_signal_data, rule);
@@ -3601,7 +3615,7 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
   signal_data->object_path           = g_strdup (object_path);
   signal_data->arg0                  = g_strdup (arg0);
   signal_data->flags                 = flags;
-  signal_data->subscribers           = g_ptr_array_new_with_free_func ((GDestroyNotify) signal_subscriber_unref);
+  signal_data->subscribers           = g_ptr_array_new_with_free_func ((GDestroyNotify) signal_subscriber_destroy);
   g_ptr_array_add (signal_data->subscribers, subscriber);
 
   g_hash_table_insert (connection->map_rule_to_signal_data,
@@ -3643,7 +3657,7 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
 /* ---------------------------------------------------------------------------------------------------- */
 
 /* called in any thread */
-/* must hold lock when calling this (except if connection->finalizing is TRUE)
+/* must hold lock when calling this
  * returns the number of removed subscribers */
 static guint
 unsubscribe_id_internal (GDBusConnection *connection,
@@ -3765,7 +3779,6 @@ emit_signal_instance_in_idle_cb (gpointer data)
 {
   SignalInstance *signal_instance = data;
   GVariant *parameters;
-  gboolean has_subscription;
 
   parameters = g_dbus_message_get_body (signal_instance->message);
   if (parameters == NULL)
@@ -3779,8 +3792,7 @@ emit_signal_instance_in_idle_cb (gpointer data)
     }
 
 #if 0
-  g_print ("in emit_signal_instance_in_idle_cb (id=%d sender=%s path=%s interface=%s member=%s params=%s)\n",
-           signal_instance->subscriber->id,
+  g_print ("in emit_signal_instance_in_idle_cb (sender=%s path=%s interface=%s member=%s params=%s)\n",
            signal_instance->sender,
            signal_instance->path,
            signal_instance->interface,
@@ -3788,22 +3800,31 @@ emit_signal_instance_in_idle_cb (gpointer data)
            g_variant_print (parameters, TRUE));
 #endif
 
-  /* Careful here, don't do the callback if we no longer has the subscription */
+  /* We need to unlink signal_instance as we are going to invoke the
+   * callback.
+   *
+   * Note that if signal_subscriber_destroy() already unlinked the instance,
+   * it would also set signal_instance->idle_source to %NULL. We use that
+   * below to check whether we got cancelled or whether to invoke the callback.
+   * Note that we access "signal_instance->idle_source" after the look. That
+   * is fine, because signal_subscriber_destroy() could only touch it inside
+   * the lock (and not after we unlink). */
   CONNECTION_LOCK (signal_instance->connection);
-  has_subscription = FALSE;
-  if (g_hash_table_lookup (signal_instance->connection->map_id_to_signal_data,
-                           GUINT_TO_POINTER (signal_instance->subscriber->id)) != NULL)
-    has_subscription = TRUE;
+  c_list_unlink (&signal_instance->sigsubscr_lst);
   CONNECTION_UNLOCK (signal_instance->connection);
 
-  if (has_subscription)
-    signal_instance->subscriber->callback (signal_instance->connection,
-                                           signal_instance->sender,
-                                           signal_instance->path,
-                                           signal_instance->interface,
-                                           signal_instance->member,
-                                           parameters,
-                                           signal_instance->subscriber->user_data);
+  if (signal_instance->idle_source)
+    {
+      g_source_unref (signal_instance->idle_source);
+
+      signal_instance->callback (signal_instance->connection,
+                                 signal_instance->sender,
+                                 signal_instance->path,
+                                 signal_instance->interface,
+                                 signal_instance->member,
+                                 parameters,
+                                 signal_instance->user_data);
+    }
 
   g_variant_unref (parameters);
 
@@ -3815,7 +3836,6 @@ signal_instance_free (SignalInstance *signal_instance)
 {
   g_object_unref (signal_instance->message);
   g_object_unref (signal_instance->connection);
-  signal_subscriber_unref (signal_instance->subscriber);
   g_free (signal_instance);
 }
 
@@ -3937,7 +3957,8 @@ schedule_callbacks (GDBusConnection *connection,
           SignalInstance *signal_instance;
 
           signal_instance = g_new0 (SignalInstance, 1);
-          signal_instance->subscriber = signal_subscriber_ref (subscriber);
+          signal_instance->callback = subscriber->callback;
+          signal_instance->user_data = subscriber->user_data;
           signal_instance->message = g_object_ref (message);
           signal_instance->connection = g_object_ref (connection);
           signal_instance->sender = sender;
@@ -3953,7 +3974,9 @@ schedule_callbacks (GDBusConnection *connection,
                                  (GDestroyNotify) signal_instance_free);
           g_source_set_name (idle_source, "[gio] emit_signal_instance_in_idle_cb");
           g_source_attach (idle_source, subscriber->context);
-          g_source_unref (idle_source);
+          signal_instance->idle_source = idle_source;
+
+          c_list_link_tail (&subscriber->sigsubscr_lst_head, &signal_instance->sigsubscr_lst);
         }
     }
 }
@@ -4019,7 +4042,10 @@ purge_all_signal_subscriptions (GDBusConnection *connection)
   for (n = 0; n < ids->len; n++)
     {
       guint subscription_id = g_array_index (ids, guint, n);
+
+      CONNECTION_LOCK (connection);
       unsubscribe_id_internal (connection, subscription_id);
+      CONNECTION_UNLOCK (connection);
     }
   g_array_free (ids, TRUE);
 }
