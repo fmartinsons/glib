@@ -241,7 +241,7 @@ g_tls_password_new (GTlsPasswordFlags  flags,
 }
 
 /**
- * g_tls_password_get_value:
+ * g_tls_password_get_value: (virtual get_value)
  * @password: a #GTlsPassword object
  * @length: (nullable): location to place the length of the password.
  *
@@ -251,7 +251,7 @@ g_tls_password_new (GTlsPasswordFlags  flags,
  * for @length in contexts where you know the password will have a
  * certain fixed length.)
  *
- * Returns: The password value (owned by the password object).
+ * Returns: (array length=length): The password value (owned by the password object).
  *
  * Since: 2.30
  */
