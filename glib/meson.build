@@ -231,6 +231,7 @@ deprecated_sources = files(
 )
 
 glib_sources = files(
+  'c-list.h',
   'garcbox.c',
   'garray.c',
   'gasyncqueue.c',
