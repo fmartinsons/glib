@@ -3265,6 +3265,28 @@ typedef struct
   GPtrArray *subscribers;  /* (owned) (element-type SignalSubscriber) */
 } SignalData;
 
+typedef struct
+{
+  /* All fields are immutable after construction. */
+  gatomicrefcount ref_count;
+  GDBusSignalCallback callback;
+  gpointer user_data;
+  GDestroyNotify user_data_free_func;
+  guint id;
+  GMainContext *context;
+} SignalSubscriber;
+
+typedef struct
+{
+  SignalSubscriber    *subscriber;  /* (owned) */
+  GDBusMessage        *message;
+  GDBusConnection     *connection;
+  const gchar         *sender;  /* (nullable) for peer-to-peer connections */
+  const gchar         *path;
+  const gchar         *interface;
+  const gchar         *member;
+} SignalInstance;
+
 static void
 signal_data_free (SignalData *signal_data)
 {
@@ -3278,17 +3300,6 @@ signal_data_free (SignalData *signal_data)
   g_ptr_array_unref (signal_data->subscribers);
   g_free (signal_data);
 }
-
-typedef struct
-{
-  /* All fields are immutable after construction. */
-  gatomicrefcount ref_count;
-  GDBusSignalCallback callback;
-  gpointer user_data;
-  GDestroyNotify user_data_free_func;
-  guint id;
-  GMainContext *context;
-} SignalSubscriber;
 
 static SignalSubscriber *
 signal_subscriber_ref (SignalSubscriber *subscriber)
@@ -3745,17 +3756,6 @@ g_dbus_connection_signal_unsubscribe (GDBusConnection *connection,
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
-
-typedef struct
-{
-  SignalSubscriber    *subscriber;  /* (owned) */
-  GDBusMessage        *message;
-  GDBusConnection     *connection;
-  const gchar         *sender;  /* (nullable) for peer-to-peer connections */
-  const gchar         *path;
-  const gchar         *interface;
-  const gchar         *member;
-} SignalInstance;
 
 /* called on delivery thread (e.g. where g_dbus_connection_signal_subscribe() was called) with
  * no locks held
