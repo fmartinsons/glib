@@ -243,7 +243,7 @@ g_tls_password_new (GTlsPasswordFlags  flags,
 /**
  * g_tls_password_get_value: (virtual get_value)
  * @password: a #GTlsPassword object
- * @length: (nullable): location to place the length of the password.
+ * @length: (optional): location to place the length of the password.
  *
  * Get the password value. If @length is not %NULL then it will be
  * filled in with the length of the password value. (Note that the
